@@ -1,0 +1,115 @@
+int ct = 0; 
+int HT_InsertEntry(HT_info *header_info, Record record) {
+    int result , fd , current_size , blockno=1 , offset = 0 , block_id , entries , overflow=0, new_overflow=0 , new_entries=1 , i ;
+    void *block;
+    long unsigned size ;
+    fd = header_info->fileDesc;
+    	char name[20];
+    // find key and hash it
+    if(!strcmp( header_info->attrName , "city")){
+		result = hash_function( record.city , 0 , header_info );
+	}
+	else if(!strcmp( header_info->attrName , "surname")){
+		result = hash_function( record.surname , 0 , header_info );
+	}
+	else if(!strcmp( header_info->attrName , "name")){
+		result = hash_function( record.name , 0 , header_info );
+	}
+	else if(!strcmp( header_info->attrName , "id")){
+		result = hash_function( NULL , record.id , header_info  );
+	}
+	//where can I find the pointer to the block?
+	size = result * sizeof(int);
+	if( size < block_size ){			// you will find your entry in the block 1
+		blockno = 1;
+	}else{
+		current_size = block_size;
+		while( current_size < size){
+			current_size += block_size;
+			blockno++;
+			offset -- ; 				// offset is a value which holds how many blocks are beyond the first . so if the hashtable needs to be stored in 3 blocks , in the 3rd block a hash result with value X , will go to entry X*sizeof(int) - ( offset*(block_size / sizeof(int))
+		}	
+	}
+	
+		if( BF_ReadBlock(fd, blockno  , &block)< 0 ) BF_PrintError("error while reading block");
+		memcpy( &block_id , block + (result-1)*sizeof(int)- ( offset*(block_size / sizeof(int)) ) , sizeof(int));
+//		printf(" got id %d from entry %d \n" , block_id , result);
+		
+		// go to the bucket with id : block_id
+		if( BF_ReadBlock(fd, block_id  , &block)< 0 ) BF_PrintError("error while reading block");
+		memcpy( &entries , block + 512 - 2*sizeof(int) , sizeof(int));
+		memcpy( &overflow , block + 512 - sizeof(int) , sizeof(int));
+		if(entries < 7 ) {
+			printf("can store record in first available bucket\n");
+			// we can store the record here , there's enough space
+				memcpy( block + entries*sizeof(Record) , &record , sizeof(Record));
+				entries++;
+				memcpy( block + 512 - 2*sizeof(int) , &entries , sizeof(int));
+				if( BF_WriteBlock( fd , block_id) < 0 ) BF_PrintError("error while writing block");
+				memcpy( name , block + (entries-1) * sizeof(Record) + sizeof(int) , sizeof(char)*15);
+				printf("fished a name , is it :%s \n" , name);
+		}else{
+				printf("skip record \n");
+			printf("no space left in bucket %d \n" , block_id);
+			for(i=1; i<8; i++){
+				memcpy( name , block + (i-1) * sizeof(Record) + sizeof(int) , sizeof(char)*15);
+				printf("names : %s \n" , name );
+				}
+			//	sleep(2);
+			// check if there is already an overflow bucket
+			memcpy( &overflow , block + 512 - sizeof(int) , sizeof(int));
+			if( overflow == 0 ){
+				printf("no overflow found , allocating ... \n");
+				// no overflowbucket found , allocate a new one and link it to the one we're in
+				if( BF_AllocateBlock(fd)<0) BF_PrintError("error while allocating block");	
+				ct++;
+			    overflow = BF_GetBlockCounter(fd) - 1 ;
+			    printf("%d ->allocated overflow\n" , overflow);
+			    memcpy( block + 512 - sizeof(int) , &overflow , sizeof(int));			// store overflow id in the current bucket 
+			    // go to overflow bucket , initialize all needed info ( entries and overflow ) and then store our record in the first entry
+				if( BF_ReadBlock(fd, overflow  , &block)< 0 ) BF_PrintError("error while reading block");
+				memcpy( block + 512 - sizeof(int) , &new_overflow , sizeof(int));					// this bucket was just allocated , obviously overflow value is 0
+				memcpy( block , &record , sizeof(Record));
+				memcpy( block + 512 - 2*sizeof(int) , &new_entries , sizeof(int));					// entries count is now 1 (just saved a record)
+				memcpy( name , block + (entries-1) * sizeof(Record) + sizeof(int) , sizeof(char)*15);
+				printf("fished a name , is it :%s \n" , name);
+				if( BF_WriteBlock( fd , overflow) < 0 ) BF_PrintError("error while writing block"); 
+				
+			}else{
+				printf(" overflow found , checking ... \n");
+				// there is already an overflow bucket , go check there if there is space
+				memcpy( &overflow , block + 512 - sizeof(int) , sizeof(int));
+				while( overflow != 0 ) {
+					// find the last linked overflow bucket
+					if( BF_ReadBlock(fd, overflow  , &block)< 0 ) BF_PrintError("error while reading block");
+					memcpy( &overflow , block + 512 - sizeof(int) , sizeof(int));
+				}
+				memcpy( &entries , block + 512 - 2*sizeof(int) , sizeof(int));
+				if(entries < 7 ) {
+				// we can store the record here , there's enough space
+					memcpy( block + entries*sizeof(Record) , &record , sizeof(Record));
+					entries++;
+					memcpy( block + 512 - 2*sizeof(int) , &entries , sizeof(int));
+					memcpy( name , block + (entries-1) * sizeof(Record) + sizeof(int) , sizeof(char)*15);
+					printf("fished a name , is it :%s \n" , name);
+					if( BF_WriteBlock( fd , overflow) < 0 ) BF_PrintError("error while writing block");
+				}else{
+					if( BF_AllocateBlock(fd)<0) BF_PrintError("error while allocating block");	
+					overflow = BF_GetBlockCounter(fd) - 1 ;
+					memcpy( block + 512 - sizeof(int) , &overflow , sizeof(int));			// store overflow id in the current bucket 
+					// go to overflow bucket , initialize all needed info ( entries and overflow ) and then store our record in the first entry
+					if( BF_ReadBlock(fd, overflow  , &block)< 0 ) BF_PrintError("error while reading block");
+					memcpy( block + 512 - sizeof(int) , &new_overflow , sizeof(int));					// this bucket was just allocated , obviously overflow value is 0
+					memcpy( block , &record , sizeof(Record));
+					memcpy( block + 512 - 2*sizeof(int) , &new_entries , sizeof(int));					// entries count is now 1 (just saved a record)
+					memcpy( &entries , block + 512 - 2*sizeof(int) , sizeof(int));
+					memcpy( name , block + (entries-1) * sizeof(Record) + sizeof(int) , sizeof(char)*15);
+					printf("fished a name , is it :%s \n" , name);
+					if( BF_WriteBlock( fd , overflow) < 0 ) BF_PrintError("error while writing block"); 
+				}
+			}
+		}
+		printf("%d\n", ct);
+    return -1;
+}
+
