@@ -1,0 +1,64 @@
+#include "BF.h"
+#include "hash.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+
+int main(int argc, char** argv){
+	FILE* fp ;  size_t len = 0;   ssize_t read;
+	char * line = NULL;	char *token;
+	Record record;
+	HT_info *hptr;
+	char input_file[256];	char filename[256];  char attrName[20]; char attrType = 'c';
+	int buckets = 127;	int attrLength , elements = 0 , i;
+//	void *block;
+	for(i=0;i<argc;i++){											// get name of input fiile
+		if(strcmp(argv[i],"-f")==0){
+				strcpy(input_file,argv[i+1]);
+		}
+	}
+	fp = fopen(input_file , "r");									// open and read the records from the file 
+	if(fp==NULL){
+		printf("invalid file given  , exiting\n");
+		return -1;
+	}
+	strcpy(filename , "HT_hashfile");
+	strcpy(attrName, "id");
+	if(!strcmp( attrName , "city")){
+		attrLength = 25;
+		}
+	else if(!strcmp( attrName , "surname")){
+		attrLength = 20;
+	}
+	else if(!strcmp( attrName , "name")){
+		attrLength = 15;
+	}
+	else if(!strcmp( attrName , "id")){
+		attrLength = 4;
+	}
+	HT_CreateIndex( filename, attrType,attrName,  attrLength, buckets);
+	hptr = HT_OpenIndex(filename);
+	while ((read = getline(&line, &len, fp)) != -1) {
+		token = strtok(line, ",");		
+		record.id = atoi(token);		
+	    token = strtok(NULL, ",");	
+	    strcpy( record.name ,  token);
+	    record.name[strlen(record.name)-1] = '\0';
+	    memmove(record.name, record.name + 1, strlen(record.name));
+	    token = strtok(NULL, ",");	
+	    strcpy(record.surname , token);
+	    memmove(record.surname, record.surname + 1, strlen(record.surname));
+	    record.surname[strlen(record.surname)-1] = '\0';
+	    token = strtok(NULL, "\n");	
+	    strcpy(record.city , token);
+	    record.city[strlen(record.city)-2] = '\0';
+	    memmove(record.city, record.city + 1, strlen(record.city));
+		elements++;
+		printf("%d %s %s %s \n" , record.id , record.name , record.surname , record.city  );
+		HT_InsertEntry(hptr,  record);
+//		sleep(5);
+	}
+	 HT_GetAllEntries(hptr, "125654"); 
+	fclose(fp);
